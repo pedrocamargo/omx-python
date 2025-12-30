@@ -1,81 +1,107 @@
+import logging
+
 import numpy as np
-import tables  # requires pytables >= 3.1
+import h5py
 
-from .Exceptions import *
+from .exceptions import ShapeError, MappingError
 
 
-class File(tables.File):
+class File(h5py.File):
     """
-    OMX File class, which contains all the methods for adding, removing, manipulating tables 
+    OMX File class, which contains all the methods for adding, removing, manipulating matrices
     and mappings in an OMX file.
     """
 
-    def __init__(self, f,m,t,r,f1, **kwargs):
-        tables.File.__init__(self,f,m,t,r,f1,**kwargs)
+    def __init__(self, name, mode="r", title="", filters=None, **kwargs):
+        super(File, self).__init__(name, mode, **kwargs)
         self._shape = None
+        self.default_filters = filters
 
     def version(self):
         """
         Return the OMX file format of this OMX file, embedded in the OMX_VERSION file attribute.
         Returns None if the OMX_VERSION attribute is not set.
         """
-        if 'OMX_VERSION' in self.root._v_attrs:
-            return self.root._v_attrs['OMX_VERSION']
+        if "OMX_VERSION" in self.attrs:
+            return self.attrs["OMX_VERSION"]
         else:
             return None
 
-
-    def create_matrix(self, name, atom=None, shape=None, title='', filters=None,
-                     chunkshape=None, byteorder=None, createparents=False, obj=None,
-                     attrs=None):
+    def create_matrix(self, name, shape=None, title="", filters=None, chunks=True, obj=None, dtype=None, attrs=None):
         """
-        Create an OMX Matrix (CArray) at the root level. User must pass in either
-        an existing numpy matrix, or a shape and an atom type.
-
-        Parameters
-        ----------
-        name : string
-            The name of this matrix. Stored in HDF5 as the leaf name.
-        title : string
-            Short description of this matrix. Default is ''.
-        obj : numpy.CArray
-            Existing numpy array from which to create this OMX matrix. If obj is passed in,
-            then shape and atom can be left blank. If obj is not passed in, then a shape and
-            atom must be specified instead. Default is None.
-        shape : numpy.array
-            Optional shape of the matrix. Shape is an int32 numpy array of format (rows,columns).
-            If shape is not specified, an existing numpy CArray must be passed in instead, 
-            as the 'obj' parameter. Default is None.
-        atom : atom_type
-            Optional atom type of the data. Can be int32, float32, etc. Default is None.
-            If None specified, then obj parameter must be passed in instead.
-        filters : tables.Filters
-            Set of HDF5 filters (compression, etc) used for creating the matrix. 
-            Default is None. See HDF5 documentation for details. Note: while the default here
-            is None, the default set of filters set at the OMX parent file level is 
-            zlib compression level 1. Those settings usually trickle down to the table level.
-        attrs : dict
-            Dictionary of attribute names and values to be attached to this matrix.
-            Default is None.
-
-        Returns
-        -------
-        matrix : tables.carray
-            HDF5 CArray matrix
+        Create an OMX Matrix (Dataset) at the root level. User must pass in either
+        an existing numpy matrix, or a shape and a dtype.
         """
 
         # If object was passed in, make sure its shape is correct
         if self.shape() is not None and obj is not None and obj.shape != self.shape():
-            raise ShapeError('%s has shape %s but this file requires shape %s' %
-                (name, obj.shape, self.shape()))
+            raise ShapeError(f"{name} has shape {obj.shape} but this file requires shape {self.shape()}")
 
-        matrix = self.create_carray(self.root.data, name, atom, shape, title, filters,
-                                    chunkshape, byteorder, createparents, obj)
+        # Determine dshape and dtype
+        dshape = shape
+        data = obj
+        if obj is not None:
+            dshape = obj.shape
+            dtype = obj.dtype
+
+        if dshape is None or dtype is None:
+            raise ValueError("Shape and dtype must be specified if obj is None")
+
+        # Handle compression
+        compression = None
+        compression_opts = None
+        shuffle = False
+
+        # If filters is passed (it might be a tables.Filters object or a dict or None)
+        # We'll try to parse basic stuff or just use defaults if it's the standard OMX one
+        filters = filters or self.default_filters
+
+        if filters:
+            # Handle dict
+            if isinstance(filters, dict):
+                compression = filters.get("complib")
+                compression_opts = filters.get("complevel")
+                shuffle = filters.get("shuffle")
+
+            # Handle object with attributes (like tables.Filters)
+            elif hasattr(filters, "complib"):
+                compression = filters.complib if filters.complib else compression
+                compression_opts = filters.complevel if hasattr(filters, "complevel") else compression_opts
+                shuffle = filters.shuffle if hasattr(filters, "shuffle") else shuffle
+
+
+        compression = "gzip" if compression == "zlib" else compression
+        # Defaults if not specified but standard in OMX (zlib 1)
+        # Actually tables default in __init__ was passed.
+        # h5py doesn't have a default file-wide filter.
+        # We'll rely on what's passed or defaults.
+
+        # Create 'data' group if it doesn't exist
+        if not super(File, self).__contains__("data"):
+            self.create_group("data")
+
+        # create_dataset arguments
+        kwargs = {}
+        if compression:
+            kwargs["compression"] = compression
+        if compression_opts is not None:
+            kwargs["compression_opts"] = compression_opts
+        if shuffle:
+            kwargs["shuffle"] = shuffle
+        if chunks:
+            kwargs["chunks"] = chunks
+
+        matrix = (
+            super(File, self).__getitem__("data").create_dataset(name, shape=dshape, dtype=dtype, data=data, **kwargs)
+        )
+
+        if title:
+            matrix.attrs["TITLE"] = title
 
         # Store shape if we don't have one yet
         if self._shape is None:
-            storeshape = np.array([matrix.shape[0],matrix.shape[1]], dtype='int32')
-            self.root._v_attrs['SHAPE'] = storeshape
+            storeshape = np.array([matrix.shape[0], matrix.shape[1]], dtype="int32")
+            self.attrs["SHAPE"] = storeshape
             self._shape = matrix.shape
 
         # attributes
@@ -88,11 +114,6 @@ class File(tables.File):
     def shape(self):
         """
         Get the one and only shape of all matrices in this File
-        
-        Returns
-        -------
-        shape : tuple
-            Tuple of (rows,columns) for this matrix and file.
         """
 
         # If we already have the shape, just return it
@@ -100,262 +121,256 @@ class File(tables.File):
             return self._shape
 
         # If shape is already set in root node attributes, grab it
-        if 'SHAPE' in self.root._v_attrs:
+        if "SHAPE" in self.attrs:
             # Shape is stored as a numpy.array:
-            arrayshape = self.root._v_attrs['SHAPE']
+            arrayshape = self.attrs["SHAPE"]
             # which must be converted to a tuple:
-            realshape = (arrayshape[0],arrayshape[1])
-            self._shape = realshape
+            self._shape = (arrayshape[0], arrayshape[1])
             return self._shape
 
-        # Inspect the first CArray object to determine its shape
-        if len(self) > 0:
-            # jwd: generator has no next funtion in python 3 
-            # next() function supported in both in python 2.6+ and python 3
-            self._shape = next(self.iter_nodes(self.root.data,'CArray')).shape
+        # Inspect the first Dataset object to determine its shape
+        if super(File, self).__contains__("data"):
+            data_group = super(File, self).__getitem__("data")
+            if len(data_group) > 0:
+                # Get first key
+                first_key = list(data_group.keys())[0]
+                self._shape = data_group[first_key].shape
 
-            # Store it if we can
-            if self._iswritable():
-                storeshape = np.array(
-                    [self._shape[0],self._shape[1]],
-                    dtype='int32')
-                self.root._v_attrs['SHAPE'] = storeshape
+                # Store it if we can
+                if self.mode != "r":
+                    storeshape = np.array([self._shape[0], self._shape[1]], dtype="int32")
+                    self.attrs["SHAPE"] = storeshape
+                    self.flush()
 
-            return self._shape
-
-        else:
-            return None
-
+                return self._shape
+        return None
 
     def list_matrices(self):
-        """
-        List the matrix names in this File
-
-        Returns
-        -------
-        matrices : list
-            List of all matrix names stored in this OMX file.
-        """
-        return [node.name for node in self.list_nodes(self.root.data,'CArray')]
-
+        """List the matrix names in this File"""
+        if super(File, self).__contains__("data"):
+            return list(super(File, self).__getitem__("data").keys())
+        return []
 
     def list_all_attributes(self):
-        """
-        Return set of all attributes used for any Matrix in this File
-        
-        Returns
-        -------
-        all_attributes : set
-            The combined set of all attribute names that exist on any matrix in this file.
-        """
+        """Return set of all attributes used for any Matrix in this File"""
         all_tags = set()
-        for m in self.iter_nodes(self.root.data, 'CArray'):
-            all_tags.update(m.attrs._v_attrnamesuser)
-        return sorted(all_tags)
-
+        if super(File, self).__contains__("data"):
+            data_group = super(File, self).__getitem__("data")
+            for m_name in data_group:
+                m = data_group[m_name]
+                all_tags.update(m.attrs.keys())
+        return sorted(list(all_tags))
 
     # MAPPINGS -----------------------------------------------
+    @property
+    def lookup(self):
+        """Return the lookup group, creating it when writable if missing."""
+        if super(File, self).__contains__("lookup"):
+            return super(File, self).__getitem__("lookup")
+        if self.mode == "r":
+            raise MappingError("No zone mappings available in this file.")
+        return self.create_group("lookup")
+
     def list_mappings(self):
-        """
-        List all mappings in this file
-
-        Returns:
-        --------
-        mappings : list
-            List of the names of all mappings in the OMX file. Mappings 
-            are stored internally in the 'lookup' subset of the HDF5 file
-            structure. Returns empty list if there are no mappings.
-        """
-        try:
-            return [m.name for m in self.list_nodes(self.root.lookup)]
-        except:
+        """  List all mappings in this file """
+        if "lookup" not in self:
             return []
-
+        return list(self.lookup.keys())
 
     def delete_mapping(self, title):
-        """
-        Remove a mapping.
+        """ Remove a mapping. """
+        if "lookup" not in self:
+            raise LookupError(f"No such mapping: {title}")
 
-        Raises:
-        -------
-        LookupError : if the specified mapping does not exist.
-        """
+        lookup = self.lookup
+        if title not in lookup:
+            raise LookupError(f"No such mapping: {title}")
 
+        del lookup[title]
+        self.flush()
+
+    def delete_matrix(self, name):
+        """ Remove a matrix."""
         try:
-            self.remove_node(self.root.lookup, title)
-        except:
-            raise LookupError('No such mapping: '+title)
-
+            data_group = super(File, self).__getitem__("data")
+            del data_group[name]
+            self.flush()
+        except Exception:
+            raise LookupError(f"No such matrix: {name}")
 
     def mapping(self, title):
-        """
-        Return dict containing key:value pairs for specified mapping. Keys
-        represent the map item and value represents the array offset.
+        """ Return dict containing key:value pairs for specified mapping. """
 
-        Parameters:
-        -----------
-        title : string
-            Name of the mapping to be returned
+        if "lookup" not in self:
+            raise LookupError(f"No such mapping: {title}")
 
-        Returns:
-        --------
-        mapping : dict
-            Dictionary where each key is the map item, and the value 
-            represents the array offset.
+        lookup = self.lookup
+        if title not in lookup:
+            raise LookupError(f"No such mapping: {title}")
 
-        Raises:
-        -------
-        LookupError : if the specified mapping does not exist.
-        """
+        entries = lookup[title][:]
 
-        try:
-            # fetch entries
-            entries = []
-            entries.extend(self.get_node(self.root.lookup, title)[:])
+        # build reverse key-lookup
+        keymap = {}
+        for i in range(len(entries)):
+            keymap[entries[i]] = i
 
-            # build reverse key-lookup
-            keymap = {}
-            for i in range(len(entries)):
-                keymap[entries[i]] = i
-
-            return keymap
-
-        except:
-            raise LookupError('No such mapping: '+title)
+        return keymap
 
     def map_entries(self, title):
-        """Return a list of entries for the specified mapping.
-           Throws LookupError if the specified mapping does not exist.
-        """
-        try:
-            # fetch entries
-            entries = []
-            entries.extend(self.get_node(self.root.lookup, title)[:])
+        """Return a list of entries for the specified mapping."""
+        if "lookup" not in self:
+            raise LookupError(f"No such mapping: {title}")
 
-            return entries
+        lookup = self.lookup
+        if title not in lookup:
+            raise LookupError(f"No such mapping: {title}")
 
-        except:
-            raise LookupError('No such mapping: '+title)
-
+        entries = lookup[title][:]
+        # Convert to list if it's a numpy array
+        if hasattr(entries, "tolist"):
+            return entries.tolist()
+        return entries
 
     def create_mapping(self, title, entries, overwrite=False):
-        """
-        Create an equivalency index, which maps a raw data dimension to
-        another integer value. Once created, mappings can be referenced by
-        offset or by key.
-        
-        Parameters:
-        -----------
-        title : string
-            Name of this mapping
-        entries : list
-            List of n equivalencies for the mapping. n must match one data
-            dimension of the matrix.
-        overwrite : boolean
-            True to allow overwriting an existing mapping, False will raise
-            a LookupError if the mapping already exists. Default is False.
-
-        Returns:
-        --------
-        mapping : tables.array
-            Returns the created mapping.
-
-        Raises:
-            LookupError : if the mapping exists and overwrite=False
-        """
+        """Create an equivalency index."""
 
         # Enforce shape-checking
         if self.shape():
-            if not len(entries) in self._shape:
-                raise ShapeError('Mapping must match one data dimension')
+            if len(entries) not in self._shape:
+                raise ShapeError("Mapping must match one data dimension")
 
-        # Handle case where mapping already exists:
-        if title in self.list_mappings():
+        existing = self.list_mappings()
+        if title in existing:
             if overwrite:
                 self.delete_mapping(title)
             else:
-                raise LookupError(title+' mapping already exists.')
+                raise LookupError(f"{title} mapping already exists.")
 
-        # Create lookup group under root if it doesn't already exist.
-        if 'lookup' not in self.root:
-            self.create_group(self.root, 'lookup')
-
-        # Write the mapping!
-        mymap = self.create_array(self.root.lookup, title, atom=tables.UInt32Atom(),
-                                 shape=(len(entries),) )
-        mymap[:] = entries
+        # Ensure lookup group exists when writable and write the mapping
+        lookup = self.lookup
+        mymap = lookup.create_dataset(title, data=entries)
 
         return mymap
 
-
     # The following functions implement Python list/dictionary lookups. ----
-    def __getitem__(self,key):
+    def __getitem__(self, key):
         """Return a matrix by name, or a list of matrices by attributes"""
 
         if isinstance(key, str):
-            return self.get_node(self.root.data, key)
+            # Direct access to data/lookup or paths
+            if key in ["data", "lookup"] or key.startswith("/"):
+                return super(File, self).__getitem__(key)
 
-        if 'keys' not in dir(key):
-            raise LookupError('Key %s not found' % key)
+            # Check inside 'data' group
+            if super(File, self).__contains__("data"):
+                data_group = super(File, self).__getitem__("data")
+                if key in data_group:
+                    return data_group[key]
 
-        # Loop through key/value pairs
-        mats = self.list_nodes(self.root.data, 'CArray')
+            if super(File, self).__contains__(key):
+                return super(File, self).__getitem__(key)
+
+            # If not found
+            raise LookupError(f"Key {key} not found")
+
+        if "keys" not in dir(key):
+            raise LookupError(f"Key {key} not found")
+
+        # Loop through key/value pairs (attribute lookup)
+        mats = []
+        if super(File, self).__contains__("data"):
+            data_group = super(File, self).__getitem__("data")
+            mats = [data_group[n] for n in data_group]
+
         for a in key.keys():
             mats = self._getMatricesByAttribute(a, key[a], mats)
 
         return mats
-
 
     def _getMatricesByAttribute(self, key, value, matrices=None):
 
         answer = []
 
         if matrices is None:
-            matrices = self.list_nodes(self.root.data,'CArray')
+            if super(File, self).__contains__("data"):
+                data_group = super(File, self).__getitem__("data")
+                matrices = [data_group[n] for n in data_group]
+            else:
+                matrices = []
 
         for m in matrices:
             if m.attrs is None:
                 continue
 
             # Only test if key is present in matrix attributes
-            if key in m.attrs._v_attrnames and m.attrs[key] == value:
+            if key in m.attrs and m.attrs[key] == value:
                 answer.append(m)
 
         return answer
 
-
     def __len__(self):
-        return len(self.list_nodes(self.root.data, 'CArray'))
-
+        if super(File, self).__contains__("data"):
+            return len(super(File, self).__getitem__("data"))
+        return 0
 
     def __setitem__(self, key, dataset):
-        # We need to determine atom and shape from the object that's been passed in.
+        # We need to determine dtype and shape from the object that's been passed in.
         # This assumes 'dataset' is a numpy object.
-        atom = tables.Atom.from_dtype(dataset.dtype)
-        shape = dataset.shape
 
-        #checks to see if it is already a tables instance, and if so, just copies it
-        if dataset.__class__.__name__ == 'CArray':
-            return dataset.copy(self.root.data, key)
-        else:
-            return self.create_matrix(key, atom, shape, obj=dataset)
+        # Check if it's already an h5py dataset (copy?)
+        if isinstance(dataset, h5py.Dataset):
+            # Copying datasets across files or within file is supported in h5py
+            # dest path: /data/key
+            if not super(File, self).__contains__("data"):
+                self.create_group("data")
 
+            # Implement internal logic or just use assignment if we supported it
+            # But here we want to use create_matrix logic to enforce shapes etc?
+            pass
+
+        # Remove if exists
+        if super(File, self).__contains__("data"):
+            data_group = super(File, self).__getitem__("data")
+            if key in data_group:
+                del data_group[key]
+
+        return self.create_matrix(key, obj=dataset)
 
     def __delitem__(self, key):
-        self.remove_node(self.root.data, key)
+        if super(File, self).__contains__("data"):
+            data_group = super(File, self).__getitem__("data")
+            if key in data_group:
+                del data_group[key]
+                return
 
+        # Try standard delete
+        try:
+            super(File, self).__delitem__(key)
+        except Exception as e:
+            logging.debug(f"Failed to delete key {key}: {e.args}")
 
     def __iter__(self):
         """Iterate over the keys in this container"""
-        return self.iter_nodes(self.root.data, 'CArray')
-
+        if super(File, self).__contains__("data"):
+            data_group = super(File, self).__getitem__("data")
+            for name in data_group:
+                yield data_group[name]
+        else:
+            return iter([])
 
     def __contains__(self, item):
-        return item in self.root.data._v_children
+        # Respect root-level members first (e.g., data/lookup groups or other root-level items)
+        if super(File, self).__contains__(item):
+            return True
+
+        if super(File, self).__contains__("data"):
+            data_group = super(File, self).__getitem__("data")
+            return item in data_group
+
+        return False
 
     # BACKWARD COMPATIBILITY:
-    # PyTables switched from camelCaseMethods to camel_case_methods
-    # We follow suit, and keep old methods for backward compat:
     createMapping = create_mapping
     createMatrix = create_matrix
     deleteMapping = delete_mapping
@@ -364,4 +379,3 @@ class File(tables.File):
     listMappings = list_mappings
     mapentries = map_entries
     mapEntries = map_entries
-
