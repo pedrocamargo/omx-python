@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "openmatrix"
+name = "OpenMatrix"
 version = "0.4.0"
 description = "OMX, the open matrix data format"
 readme = "README.txt"
@@ -41,8 +41,9 @@ dev = [
 [project.scripts]
 omx-validate = "openmatrix.validator:command_line"
 
-[tool.setuptools.packages.find]
-include = ["openmatrix", "openmatrix.*"]
+[tool.setuptools]
+packages = ["openmatrix"]
+
 
 [tool.ruff]
 line-length = 120

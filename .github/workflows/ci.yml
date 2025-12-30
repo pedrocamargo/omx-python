@@ -55,6 +55,5 @@ jobs:
       run: |
         uv sync --dev --all-extras
         uv pip install -e .
-        uv python -c "import openmatrix; import os; print(os.listdir(os.path.dirname(openmatrix.__file__)))"
         uv run pytest
 
