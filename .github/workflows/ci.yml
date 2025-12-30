@@ -50,8 +50,8 @@ jobs:
     - name: Set up Python ${{ matrix.python-version }}
       run: uv python install ${{ matrix.python-version }}
 
-    - name: Install dependencies and test
-      run: |
-        uv sync --dev --all-extras
-        uv pip install -e .[dev]
-        uv run pytest
+    - name: Install dependencies
+      run: uv sync --python ${{ matrix.python-version }} --dev --all-extras
+
+    - name: Run tests
+      run: uv run --python ${{ matrix.python-version }} pytest
