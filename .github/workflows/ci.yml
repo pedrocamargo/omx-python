@@ -54,5 +54,6 @@ jobs:
     - name: Install dependencies and test
       run: |
         uv sync --dev --all-extras
+        uv pip install -e .
         uv run pytest
 
