@@ -42,6 +42,7 @@ dev = [
 omx-validate = "openmatrix.validator:command_line"
 
 [tool.setuptools]
+package-dir = {"" = "src"}
 packages = ["openmatrix"]
 
 
@@ -53,5 +54,5 @@ select = ["E", "F", "W"]
 ignore = []
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = ["src"]
 testpaths = ["tests"]
