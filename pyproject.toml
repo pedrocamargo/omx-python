@@ -41,8 +41,8 @@ dev = [
 [project.scripts]
 omx-validate = "openmatrix.validator:command_line"
 
-[tool.setuptools]
-packages = ["openmatrix"]
+[tool.setuptools.packages.find]
+include = ["openmatrix", "openmatrix.*"]
 
 [tool.ruff]
 line-length = 120
