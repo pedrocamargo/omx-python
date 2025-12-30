@@ -26,3 +26,4 @@ api/python/build
 venv/
 pyenv/
 .idea/
+build/
