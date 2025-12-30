@@ -2,11 +2,11 @@ from __future__ import print_function
 
 import numpy as np
 
-from .file import File as File
 from .exceptions import ShapeError as ShapeError
+from .file import File as File
 
 # GLOBAL VARIABLES -----------
-__version__ = "0.3.3"
+__version__ = "0.4.0"
 __omx_version__ = b"0.2"
 
 

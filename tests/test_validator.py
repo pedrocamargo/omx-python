@@ -1,8 +1,9 @@
 import uuid
-import pytest
-import numpy as np
+
 import h5py
+import numpy as np
 import openmatrix as omx
+import pytest
 from openmatrix import validator
 
 
@@ -333,7 +334,7 @@ class TestRunChecks:
             f.create_matrix("m1", obj=np.ones((5, 5)))
 
         # Monkeypatch check1 to return an error tuple
-        original_check1 = validator.check1 # noqa: F841
+        original_check1 = validator.check1  # noqa: F841
 
         def mock_check1(mat_file, required=True, checknum=1):
             return (False, True, 1, "Simulated check error")
@@ -491,5 +492,3 @@ class TestExceptionHandling:
         result = validator.check12(BadFile())
         assert len(result) == 4
         assert result[0] is False
-
-

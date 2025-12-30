@@ -1,7 +1,7 @@
 import logging
 
-import numpy as np
 import h5py
+import numpy as np
 
 from .exceptions import ShapeError, MappingError
 
@@ -69,12 +69,7 @@ class File(h5py.File):
                 compression_opts = filters.complevel if hasattr(filters, "complevel") else compression_opts
                 shuffle = filters.shuffle if hasattr(filters, "shuffle") else shuffle
 
-
         compression = "gzip" if compression == "zlib" else compression
-        # Defaults if not specified but standard in OMX (zlib 1)
-        # Actually tables default in __init__ was passed.
-        # h5py doesn't have a default file-wide filter.
-        # We'll rely on what's passed or defaults.
 
         # Create 'data' group if it doesn't exist
         if not super(File, self).__contains__("data"):
@@ -324,10 +319,6 @@ class File(h5py.File):
             # dest path: /data/key
             if not super(File, self).__contains__("data"):
                 self.create_group("data")
-
-            # Implement internal logic or just use assignment if we supported it
-            # But here we want to use create_matrix logic to enforce shapes etc?
-            pass
 
         # Remove if exists
         if super(File, self).__contains__("data"):
