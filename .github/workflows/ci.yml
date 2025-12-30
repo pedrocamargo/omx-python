@@ -32,7 +32,7 @@ jobs:
       group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.os }}-${{ matrix.python-version }}
       cancel-in-progress: true
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
         os: [ubuntu-latest, windows-latest, macos-latest]
@@ -52,5 +52,6 @@ jobs:
 
     - name: Install dependencies and test
       run: |
+        uv sync --dev --all-extras
         uv pip install -e .[dev]
         uv run pytest
