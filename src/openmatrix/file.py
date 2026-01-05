@@ -48,9 +48,8 @@ class File(h5py.File):
             raise ValueError("Shape and dtype must be specified if obj is None")
 
         # Handle compression
-        compression = None
-        compression_opts = None
-        shuffle = False
+        compression = compression_opts = None
+        shuffle = fletcher32 = False
 
         # If filters is passed (it might be a tables.Filters object or a dict or None)
         # We'll try to parse basic stuff or just use defaults if it's the standard OMX one
@@ -62,12 +61,14 @@ class File(h5py.File):
                 compression = filters.get("complib")
                 compression_opts = filters.get("complevel")
                 shuffle = filters.get("shuffle")
+                fletcher32 = filters.get("fletcher32")
 
             # Handle object with attributes (like tables.Filters)
             elif hasattr(filters, "complib"):
                 compression = filters.complib if filters.complib else compression
                 compression_opts = filters.complevel if hasattr(filters, "complevel") else compression_opts
                 shuffle = filters.shuffle if hasattr(filters, "shuffle") else shuffle
+                fletcher32 = filters.fletcher32 if hasattr(filters, "fletcher32") else fletcher32
 
         compression = "gzip" if compression == "zlib" else compression
 
@@ -83,6 +84,8 @@ class File(h5py.File):
             kwargs["compression_opts"] = compression_opts
         if shuffle:
             kwargs["shuffle"] = shuffle
+        if fletcher32:
+            kwargs["fletcher32"] = fletcher32
         if chunks:
             kwargs["chunks"] = chunks
 
