@@ -1,7 +1,9 @@
 import logging
+from typing import Optional, Union, Any
 
 import h5py
 import numpy as np
+import numpy.typing as npt
 
 from .exceptions import ShapeError, MappingError
 
@@ -17,7 +19,7 @@ class File(h5py.File):
         self._shape = None
         self.default_filters = filters
 
-    def version(self):
+    def version(self) -> Optional[str]:
         """
         Return the OMX file format of this OMX file, embedded in the OMX_VERSION file attribute.
         Returns None if the OMX_VERSION attribute is not set.
@@ -27,7 +29,17 @@ class File(h5py.File):
         else:
             return None
 
-    def create_matrix(self, name, shape=None, title="", filters=None, chunks=True, obj=None, dtype=None, attrs=None):
+    def create_matrix(
+        self,
+        name: str,
+        shape: Optional[tuple[int, int]] = None,
+        title: str = "",
+        filters: Union[dict, Any] = None,
+        chunks: bool = True,
+        obj: Optional[npt.NDArray[Union[np.integer, np.floating]]] = None,
+        dtype: Optional[np.dtype] = None,
+        attrs: Optional[dict] = None,
+    ) -> h5py.Dataset:
         """
         Create an OMX Matrix (Dataset) at the root level. User must pass in either
         an existing numpy matrix, or a shape and a dtype.
@@ -107,7 +119,7 @@ class File(h5py.File):
 
         return matrix
 
-    def shape(self):
+    def shape(self) -> Optional[tuple[int, int]]:
         """
         Get the one and only shape of all matrices in this File
         """
@@ -141,13 +153,13 @@ class File(h5py.File):
                 return self._shape
         return None
 
-    def list_matrices(self):
+    def list_matrices(self) -> list[str]:
         """List the matrix names in this File"""
         if super().__contains__("data"):
             return list(super().__getitem__("data").keys())
         return []
 
-    def list_all_attributes(self):
+    def list_all_attributes(self) -> list[str]:
         """Return set of all attributes used for any Matrix in this File"""
         all_tags = set()
         if super().__contains__("data"):
@@ -160,6 +172,8 @@ class File(h5py.File):
     # MAPPINGS -----------------------------------------------
     @property
     def lookup(self):
+    @property
+    def lookup(self) -> h5py.Group:
         """Return the lookup group, creating it when writable if missing."""
         if super().__contains__("lookup"):
             return super().__getitem__("lookup")
@@ -167,13 +181,13 @@ class File(h5py.File):
             raise MappingError("No zone mappings available in this file.")
         return self.create_group("lookup")
 
-    def list_mappings(self):
+    def list_mappings(self) -> list[str]:
         """  List all mappings in this file """
         if "lookup" not in self:
             return []
         return list(self.lookup.keys())
 
-    def delete_mapping(self, title):
+    def delete_mapping(self, title) -> None:
         """ Remove a mapping. """
         if "lookup" not in self:
             raise LookupError(f"No such mapping: {title}")
@@ -185,7 +199,7 @@ class File(h5py.File):
         del lookup[title]
         self.flush()
 
-    def delete_matrix(self, name):
+    def delete_matrix(self, name) -> None:
         """ Remove a matrix."""
         try:
             data_group = super().__getitem__("data")
@@ -194,7 +208,7 @@ class File(h5py.File):
         except Exception:
             raise LookupError(f"No such matrix: {name}")
 
-    def mapping(self, title):
+    def mapping(self, title) -> dict[Any, int]:
         """ Return dict containing key:value pairs for specified mapping. """
 
         if "lookup" not in self:
@@ -207,13 +221,9 @@ class File(h5py.File):
         entries = lookup[title][:]
 
         # build reverse key-lookup
-        keymap = {}
-        for i in range(len(entries)):
-            keymap[entries[i]] = i
+        return {k: i for i, k in enumerate(entries)}
 
-        return keymap
-
-    def map_entries(self, title):
+    def map_entries(self, title) -> list[Any]:
         """Return a list of entries for the specified mapping."""
         if "lookup" not in self:
             raise LookupError(f"No such mapping: {title}")
