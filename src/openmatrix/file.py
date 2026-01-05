@@ -13,7 +13,7 @@ class File(h5py.File):
     """
 
     def __init__(self, name, mode="r", title="", filters=None, **kwargs):
-        super(File, self).__init__(name, mode, **kwargs)
+        super().__init__(name, mode, **kwargs)
         self._shape = None
         self.default_filters = filters
 
@@ -72,7 +72,7 @@ class File(h5py.File):
         compression = "gzip" if compression == "zlib" else compression
 
         # Create 'data' group if it doesn't exist
-        if not super(File, self).__contains__("data"):
+        if not super().__contains__("data"):
             self.create_group("data")
 
         # create_dataset arguments
@@ -86,9 +86,7 @@ class File(h5py.File):
         if chunks:
             kwargs["chunks"] = chunks
 
-        matrix = (
-            super(File, self).__getitem__("data").create_dataset(name, shape=dshape, dtype=dtype, data=data, **kwargs)
-        )
+        matrix = super().__getitem__("data").create_dataset(name, shape=dshape, dtype=dtype, data=data, **kwargs)
 
         if title:
             matrix.attrs["TITLE"] = title
@@ -124,8 +122,8 @@ class File(h5py.File):
             return self._shape
 
         # Inspect the first Dataset object to determine its shape
-        if super(File, self).__contains__("data"):
-            data_group = super(File, self).__getitem__("data")
+        if super().__contains__("data"):
+            data_group = super().__getitem__("data")
             if len(data_group) > 0:
                 # Get first key
                 first_key = list(data_group.keys())[0]
@@ -142,15 +140,15 @@ class File(h5py.File):
 
     def list_matrices(self):
         """List the matrix names in this File"""
-        if super(File, self).__contains__("data"):
-            return list(super(File, self).__getitem__("data").keys())
+        if super().__contains__("data"):
+            return list(super().__getitem__("data").keys())
         return []
 
     def list_all_attributes(self):
         """Return set of all attributes used for any Matrix in this File"""
         all_tags = set()
-        if super(File, self).__contains__("data"):
-            data_group = super(File, self).__getitem__("data")
+        if super().__contains__("data"):
+            data_group = super().__getitem__("data")
             for m_name in data_group:
                 m = data_group[m_name]
                 all_tags.update(m.attrs.keys())
@@ -160,8 +158,8 @@ class File(h5py.File):
     @property
     def lookup(self):
         """Return the lookup group, creating it when writable if missing."""
-        if super(File, self).__contains__("lookup"):
-            return super(File, self).__getitem__("lookup")
+        if super().__contains__("lookup"):
+            return super().__getitem__("lookup")
         if self.mode == "r":
             raise MappingError("No zone mappings available in this file.")
         return self.create_group("lookup")
@@ -187,7 +185,7 @@ class File(h5py.File):
     def delete_matrix(self, name):
         """ Remove a matrix."""
         try:
-            data_group = super(File, self).__getitem__("data")
+            data_group = super().__getitem__("data")
             del data_group[name]
             self.flush()
         except Exception:
@@ -255,16 +253,16 @@ class File(h5py.File):
         if isinstance(key, str):
             # Direct access to data/lookup or paths
             if key in ["data", "lookup"] or key.startswith("/"):
-                return super(File, self).__getitem__(key)
+                return super().__getitem__(key)
 
             # Check inside 'data' group
-            if super(File, self).__contains__("data"):
-                data_group = super(File, self).__getitem__("data")
+            if super().__contains__("data"):
+                data_group = super().__getitem__("data")
                 if key in data_group:
                     return data_group[key]
 
-            if super(File, self).__contains__(key):
-                return super(File, self).__getitem__(key)
+            if super().__contains__(key):
+                return super().__getitem__(key)
 
             # If not found
             raise LookupError(f"Key {key} not found")
@@ -274,8 +272,8 @@ class File(h5py.File):
 
         # Loop through key/value pairs (attribute lookup)
         mats = []
-        if super(File, self).__contains__("data"):
-            data_group = super(File, self).__getitem__("data")
+        if super().__contains__("data"):
+            data_group = super().__getitem__("data")
             mats = [data_group[n] for n in data_group]
 
         for a in key.keys():
@@ -288,8 +286,8 @@ class File(h5py.File):
         answer = []
 
         if matrices is None:
-            if super(File, self).__contains__("data"):
-                data_group = super(File, self).__getitem__("data")
+            if super().__contains__("data"):
+                data_group = super().__getitem__("data")
                 matrices = [data_group[n] for n in data_group]
             else:
                 matrices = []
@@ -305,8 +303,8 @@ class File(h5py.File):
         return answer
 
     def __len__(self):
-        if super(File, self).__contains__("data"):
-            return len(super(File, self).__getitem__("data"))
+        if super().__contains__("data"):
+            return len(super().__getitem__("data"))
         return 0
 
     def __setitem__(self, key, dataset):
@@ -317,34 +315,34 @@ class File(h5py.File):
         if isinstance(dataset, h5py.Dataset):
             # Copying datasets across files or within file is supported in h5py
             # dest path: /data/key
-            if not super(File, self).__contains__("data"):
+            if not super().__contains__("data"):
                 self.create_group("data")
 
         # Remove if exists
-        if super(File, self).__contains__("data"):
-            data_group = super(File, self).__getitem__("data")
+        if super().__contains__("data"):
+            data_group = super().__getitem__("data")
             if key in data_group:
                 del data_group[key]
 
         return self.create_matrix(key, obj=dataset)
 
     def __delitem__(self, key):
-        if super(File, self).__contains__("data"):
-            data_group = super(File, self).__getitem__("data")
+        if super().__contains__("data"):
+            data_group = super().__getitem__("data")
             if key in data_group:
                 del data_group[key]
                 return
 
         # Try standard delete
         try:
-            super(File, self).__delitem__(key)
+            super().__delitem__(key)
         except Exception as e:
             logging.debug(f"Failed to delete key {key}: {e.args}")
 
     def __iter__(self):
         """Iterate over the keys in this container"""
-        if super(File, self).__contains__("data"):
-            data_group = super(File, self).__getitem__("data")
+        if super().__contains__("data"):
+            data_group = super().__getitem__("data")
             for name in data_group:
                 yield data_group[name]
         else:
@@ -352,11 +350,11 @@ class File(h5py.File):
 
     def __contains__(self, item):
         # Respect root-level members first (e.g., data/lookup groups or other root-level items)
-        if super(File, self).__contains__(item):
+        if super().__contains__(item):
             return True
 
-        if super(File, self).__contains__("data"):
-            data_group = super(File, self).__getitem__("data")
+        if super().__contains__("data"):
+            data_group = super().__getitem__("data")
             return item in data_group
 
         return False
