@@ -17,10 +17,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install and lint
-        run: |
-          uv venv --python 3.13
-          uv pip install -e .[dev]
-          uv run ruff check --output-format=github
+        run: uv run --python 3.13 --extra dev ruff check --output-format=github
 
   test:
     needs: lint
