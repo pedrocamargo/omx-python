@@ -137,20 +137,19 @@ class File(h5py.File):
             return self._shape
 
         # Inspect the first Dataset object to determine its shape
-        if super().__contains__("data"):
-            data_group = super().__getitem__("data")
-            if len(data_group) > 0:
-                # Get first key
-                first_key = list(data_group.keys())[0]
-                self._shape = data_group[first_key].shape
+        data_group = self.data
+        if len(data_group) > 0:
+            # Get first key
+            first_key = list(data_group.keys())[0]
+            self._shape = data_group[first_key].shape
 
-                # Store it if we can
-                if self.mode != "r":
-                    storeshape = np.array([self._shape[0], self._shape[1]], dtype="int32")
-                    self.attrs["SHAPE"] = storeshape
-                    self.flush()
+            # Store it if we can
+            if self.mode != "r":
+                storeshape = np.array([self._shape[0], self._shape[1]], dtype="int32")
+                self.attrs["SHAPE"] = storeshape
+                self.flush()
 
-                return self._shape
+            return self._shape
         return None
 
     def list_matrices(self) -> list[str]:
@@ -171,7 +170,14 @@ class File(h5py.File):
 
     # MAPPINGS -----------------------------------------------
     @property
-    def lookup(self):
+    def data(self) -> h5py.Group:
+        """Return the data group, creating it when writable if missing."""
+        if super().__contains__("data"):
+            return super().__getitem__("data")
+        if self.mode == "r":
+            raise MappingError("No matrices available in this file.")
+        return self.create_group("data")
+
     @property
     def lookup(self) -> h5py.Group:
         """Return the lookup group, creating it when writable if missing."""
