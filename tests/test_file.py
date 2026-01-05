@@ -109,9 +109,6 @@ def test_contains(omx_file):
     with omx.open_file(omx_file, "w") as f:
         add_m1_node(f)
         assert "m1" in f
-        # keep this here to be sure we're actually running
-        # File.__contains__
-        assert "m1" in f
 
 
 def test_contains_groups_and_datasets(omx_file):
