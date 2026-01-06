@@ -8,16 +8,38 @@ on:
 
 
 jobs:
-  lint:
+  lint-coverage:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.13]
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Install and lint
-        run: uv run --python 3.13 --extra dev ruff check --output-format=github
+      - name: Lint
+        run: uv run --python ${{ matrix.python-version }} --extra dev ruff check --output-format=github
+
+      - name: Generate coverage report
+        run: |
+          uv run --python ${{ matrix.python-version }} --extra dev \
+            pytest tests/ \
+            --cov=. \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-report=html:cov_html \
+            --cov-report=markdown-append:$GITHUB_STEP_SUMMARY \
+            --dist=loadscope \
+            --numprocesses=4 \
+            --random-order \
+            --verbose
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: html-coverage-artifact
+          path: ./cov_html/
 
   test:
     needs: lint
