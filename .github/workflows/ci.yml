@@ -39,7 +39,7 @@ jobs:
           path: ./cov_html/
 
   test:
-    needs: lint
+    needs: lint-coverage
     runs-on: ${{ matrix.os }}
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.os }}-${{ matrix.python-version }}
