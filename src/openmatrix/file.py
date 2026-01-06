@@ -1,11 +1,15 @@
-import logging
-from typing import Optional, Union, Any
+from os import PathLike
+from typing import Optional, Union, Any, Literal
 
 import h5py
 import numpy as np
 import numpy.typing as npt
 
-from .exceptions import ShapeError, MappingError
+from .exceptions import ShapeError
+
+
+__version__ = "0.4.0"
+__omx_version__ = b"0.2"
 
 
 class File(h5py.File):
@@ -14,10 +18,37 @@ class File(h5py.File):
     and mappings in an OMX file.
     """
 
-    def __init__(self, name, mode="r", title="", filters=None, **kwargs):
+    def __init__(
+        self,
+        name: PathLike,
+        mode: Union[Literal["r"], Literal["w"], Literal["a"]] = "r",
+        title: str = "",
+        filters: Optional[Union[dict[str, Any], Any]] = None,
+        shape: Optional[tuple[int, int]] = None,
+        **kwargs,
+    ):
         super().__init__(name, mode, **kwargs)
         self._shape = None
         self.default_filters = filters
+
+        # add omx structure if file is writable
+        if mode != "r":
+            # version number
+            if "OMX_VERSION" not in self.attrs:
+                self.attrs["OMX_VERSION"] = __omx_version__
+            if "OMX_CREATED_WITH" not in self.attrs:
+                self.attrs["OMX_CREATED_WITH"] = "python omx " + __version__
+
+            # shape
+            if shape:
+                storeshape = np.array([shape[0], shape[1]], dtype=np.int32)
+                self.attrs["SHAPE"] = storeshape
+
+            # /data and /lookup folders
+            if "data" not in self["/"]:
+                self.create_group("data")
+            if "lookup" not in self["/"]:
+                self.create_group("lookup")
 
     def version(self) -> Optional[str]:
         """
@@ -67,6 +98,7 @@ class File(h5py.File):
         # We'll try to parse basic stuff or just use defaults if it's the standard OMX one
         filters = filters or self.default_filters
 
+        print(filters)
         if filters:
             # Handle dict
             if isinstance(filters, dict):
@@ -81,12 +113,10 @@ class File(h5py.File):
                 compression_opts = filters.complevel if hasattr(filters, "complevel") else compression_opts
                 shuffle = filters.shuffle if hasattr(filters, "shuffle") else shuffle
                 fletcher32 = filters.fletcher32 if hasattr(filters, "fletcher32") else fletcher32
+            else:
+                raise TypeError("unknown filters object")
 
         compression = "gzip" if compression == "zlib" else compression
-
-        # Create 'data' group if it doesn't exist
-        if not super().__contains__("data"):
-            self.create_group("data")
 
         # create_dataset arguments
         kwargs = {}
@@ -154,95 +184,55 @@ class File(h5py.File):
 
     def list_matrices(self) -> list[str]:
         """List the matrix names in this File"""
-        if super().__contains__("data"):
-            return list(super().__getitem__("data").keys())
-        return []
+
+        # Previous versions of OMX returned only the CArrays, it's possible to create other array types so we return
+        # them all here.
+        return list(self.data.keys())
 
     def list_all_attributes(self) -> list[str]:
         """Return set of all attributes used for any Matrix in this File"""
-        all_tags = set()
-        if super().__contains__("data"):
-            data_group = super().__getitem__("data")
-            for m_name in data_group:
-                m = data_group[m_name]
-                all_tags.update(m.attrs.keys())
-        return sorted(list(all_tags))
+        return sorted(set(k for m in self.data.values() for k in m.attrs.keys()))
 
     # MAPPINGS -----------------------------------------------
     @property
     def data(self) -> h5py.Group:
-        """Return the data group, creating it when writable if missing."""
-        if super().__contains__("data"):
-            return super().__getitem__("data")
-        if self.mode == "r":
-            raise MappingError("No matrices available in this file.")
-        return self.create_group("data")
+        """Return the data group."""
+        return super().__getitem__("data")
 
     @property
     def lookup(self) -> h5py.Group:
-        """Return the lookup group, creating it when writable if missing."""
-        if super().__contains__("lookup"):
-            return super().__getitem__("lookup")
-        if self.mode == "r":
-            raise MappingError("No zone mappings available in this file.")
-        return self.create_group("lookup")
+        """Return the lookup group."""
+        return super().__getitem__("lookup")
 
     def list_mappings(self) -> list[str]:
-        """  List all mappings in this file """
-        if "lookup" not in self:
-            return []
+        """List all mappings in this file"""
         return list(self.lookup.keys())
 
     def delete_mapping(self, title) -> None:
-        """ Remove a mapping. """
-        if "lookup" not in self:
+        """Remove a mapping."""
+        try:
+            del self.lookup[title]
+            self.flush()
+        except KeyError:
             raise LookupError(f"No such mapping: {title}")
-
-        lookup = self.lookup
-        if title not in lookup:
-            raise LookupError(f"No such mapping: {title}")
-
-        del lookup[title]
-        self.flush()
 
     def delete_matrix(self, name) -> None:
-        """ Remove a matrix."""
+        """Remove a matrix."""
         try:
-            data_group = super().__getitem__("data")
-            del data_group[name]
+            del self.data[name]
             self.flush()
         except Exception:
             raise LookupError(f"No such matrix: {name}")
 
     def mapping(self, title) -> dict[Any, int]:
-        """ Return dict containing key:value pairs for specified mapping. """
-
-        if "lookup" not in self:
-            raise LookupError(f"No such mapping: {title}")
-
-        lookup = self.lookup
-        if title not in lookup:
-            raise LookupError(f"No such mapping: {title}")
-
-        entries = lookup[title][:]
-
+        """Return dict containing key:value pairs for specified mapping."""
+        entries = self.lookup[title][:]
         # build reverse key-lookup
         return {k: i for i, k in enumerate(entries)}
 
     def map_entries(self, title) -> list[Any]:
         """Return a list of entries for the specified mapping."""
-        if "lookup" not in self:
-            raise LookupError(f"No such mapping: {title}")
-
-        lookup = self.lookup
-        if title not in lookup:
-            raise LookupError(f"No such mapping: {title}")
-
-        entries = lookup[title][:]
-        # Convert to list if it's a numpy array
-        if hasattr(entries, "tolist"):
-            return entries.tolist()
-        return entries
+        return self.lookup[title][:].tolist()
 
     def create_mapping(self, title, entries, overwrite=False):
         """Create an equivalency index."""
@@ -260,61 +250,41 @@ class File(h5py.File):
                 raise LookupError(f"{title} mapping already exists.")
 
         # Ensure lookup group exists when writable and write the mapping
-        lookup = self.lookup
-        mymap = lookup.create_dataset(title, data=entries)
-
-        return mymap
+        return self.lookup.create_dataset(title, data=entries)
 
     # The following functions implement Python list/dictionary lookups. ----
     def __getitem__(self, key):
         """Return a matrix by name, or a list of matrices by attributes"""
 
         if isinstance(key, str):
-            # Direct access to data/lookup or paths
-            if key in ["data", "lookup"] or key.startswith("/"):
+            # It's not uncommon to want a way out of the omx object, so we provide a special assess method via a
+            # path. Everything else is assumed to be in data
+            if key.startswith("/"):
                 return super().__getitem__(key)
+            else:
+                try:
+                    return self.data[key]
+                except KeyError:
+                    raise LookupError(f"Key {key} not found")
 
-            # Check inside 'data' group
-            if super().__contains__("data"):
-                data_group = super().__getitem__("data")
-                if key in data_group:
-                    return data_group[key]
-
-            if super().__contains__(key):
-                return super().__getitem__(key)
-
-            # If not found
-            raise LookupError(f"Key {key} not found")
-
-        if "keys" not in dir(key):
+        if not hasattr(key, "keys"):  # Pseudo isinstance(key, dict) check
             raise LookupError(f"Key {key} not found")
 
         # Loop through key/value pairs (attribute lookup)
-        mats = []
-        if super().__contains__("data"):
-            data_group = super().__getitem__("data")
-            mats = [data_group[n] for n in data_group]
-
+        mats = list(self.values())
         for a in key.keys():
             mats = self._getMatricesByAttribute(a, key[a], mats)
 
+        # Shadowed 'mats' variable means that the empty dict query (e.g. f[{}]) returns all children of data.
         return mats
 
     def _getMatricesByAttribute(self, key, value, matrices=None):
-
         answer = []
 
         if matrices is None:
-            if super().__contains__("data"):
-                data_group = super().__getitem__("data")
-                matrices = [data_group[n] for n in data_group]
-            else:
-                matrices = []
+            matrices = list(self.values())
 
         for m in matrices:
-            if m.attrs is None:
-                continue
-
             # Only test if key is present in matrix attributes
             if key in m.attrs and m.attrs[key] == value:
                 answer.append(m)
@@ -322,9 +292,7 @@ class File(h5py.File):
         return answer
 
     def __len__(self):
-        if super().__contains__("data"):
-            return len(super().__getitem__("data"))
-        return 0
+        return len(self.data)
 
     def __setitem__(self, key, dataset):
         # We need to determine dtype and shape from the object that's been passed in.
@@ -332,51 +300,38 @@ class File(h5py.File):
 
         # Check if it's already an h5py dataset (copy?)
         if isinstance(dataset, h5py.Dataset):
-            # Copying datasets across files or within file is supported in h5py
-            # dest path: /data/key
-            if not super().__contains__("data"):
-                self.create_group("data")
+            return self.data.copy(dataset, key)
 
-        # Remove if exists
-        if super().__contains__("data"):
-            data_group = super().__getitem__("data")
-            if key in data_group:
-                del data_group[key]
+        try:
+            del self[key]
+        except KeyError:
+            pass
 
         return self.create_matrix(key, obj=dataset)
 
-    def __delitem__(self, key):
-        if super().__contains__("data"):
-            data_group = super().__getitem__("data")
-            if key in data_group:
-                del data_group[key]
-                return
+    # Our set and get item methods break these methods from h5py. These could be useful so we restore them by forward
+    # the call to the data group instead of the file object.
+    def items(self):
+        return self.data.items()
 
-        # Try standard delete
-        try:
+    def keys(self):
+        return self.data.keys()
+
+    def values(self):
+        return self.data.values()
+
+    def __delitem__(self, key):
+        if key.startswith("/"):
             super().__delitem__(key)
-        except Exception as e:
-            logging.debug(f"Failed to delete key {key}: {e.args}")
+        else:
+            del self.data[key]
 
     def __iter__(self):
-        """Iterate over the keys in this container"""
-        if super().__contains__("data"):
-            data_group = super().__getitem__("data")
-            for name in data_group:
-                yield data_group[name]
-        else:
-            return iter([])
+        """Iterate over the matrices in this container"""
+        return iter(self.values())
 
     def __contains__(self, item):
-        # Respect root-level members first (e.g., data/lookup groups or other root-level items)
-        if super().__contains__(item):
-            return True
-
-        if super().__contains__("data"):
-            data_group = super().__getitem__("data")
-            return item in data_group
-
-        return False
+        return item in self.data
 
     # BACKWARD COMPATIBILITY:
     createMapping = create_mapping

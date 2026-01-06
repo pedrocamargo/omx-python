@@ -1,15 +1,19 @@
-import numpy as np
+from os import PathLike
+from typing import Union, Literal, Optional, Any
 
 from .exceptions import ShapeError as ShapeError
-from .file import File as File
-
-# GLOBAL VARIABLES -----------
-__version__ = "0.4.0"
-__omx_version__ = b"0.2"
+from .file import File as File, __version__ as __version__, __omx_version__ as __omx_version__
 
 
 # GLOBAL FUNCTIONS -----------
-def open_file(filename, mode="r", title="", filters=None, shape=None, **kwargs):
+def open_file(
+    filename: PathLike,
+    mode: Union[Literal["r"], Literal["w"], Literal["a"]] = "r",
+    title: str = "",
+    filters: Optional[Union[dict[str, Any], Any]] = None,
+    shape: Optional[tuple[int, int]] = None,
+    **kwargs,
+) -> File:
     """
     Open or create a new OMX file. New files will be created with default
     zlib compression enabled if filters is None.
@@ -47,29 +51,10 @@ def open_file(filename, mode="r", title="", filters=None, shape=None, **kwargs):
     if filters is None and mode != "r":
         filters = {"complib": "zlib", "complevel": 1, "shuffle": True}
 
-    f = File(filename, mode, title=title, filters=filters, **kwargs)
+    print(filters)
 
-    # add omx structure if file is writable
-    if mode != "r":
-        # version number
-        if "OMX_VERSION" not in f.attrs:
-            f.attrs["OMX_VERSION"] = __omx_version__
-        if "OMX_CREATED_WITH" not in f.attrs:
-            f.attrs["OMX_CREATED_WITH"] = "python omx " + __version__
-
-        # shape
-        if shape:
-            storeshape = np.array([shape[0], shape[1]], dtype=np.int32)
-            f.attrs["SHAPE"] = storeshape
-
-        # /data and /lookup folders
-        if "data" not in f:
-            f.create_group("data")
-        if "lookup" not in f:
-            f.create_group("lookup")
-
-    return f
+    return File(filename, mode, title=title, filters=filters, shape=shape, **kwargs)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     print("OMX!")
