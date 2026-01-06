@@ -131,7 +131,6 @@ class File(h5py.File):
         # We'll try to parse basic stuff or just use defaults if it's the standard OMX one
         filters = filters or self.default_filters
 
-        print(filters)
         if filters:
             # Handle dict
             if isinstance(filters, dict):
@@ -426,6 +425,7 @@ class File(h5py.File):
         return answer
 
     def __len__(self):
+        """Return the length of the '/data' group."""
         return len(self.data)
 
     def __setitem__(self, key, dataset):
@@ -472,7 +472,7 @@ class File(h5py.File):
             del self.data[key]
 
     def __iter__(self):
-        """Iterate over the matrices in this container"""
+        """Iterate over the matrices in this container."""
         return iter(self.values())
 
     def __contains__(self, item):
