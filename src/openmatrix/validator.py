@@ -48,7 +48,7 @@ def check3(mat_file, required=True, checknum=3):
     """Check 3: Has data group for matrices"""
     try:
         print("\nCheck 3: Has data group for matrices")
-        ok = "data" in mat_file.keys()
+        ok = "data" in mat_file["/"]
         print("  Group:", pass_or_fail(ok))
         print("  Number of Matrices:", len(mat_file))
         print("  Matrix names:", mat_file.list_matrices())
@@ -151,7 +151,7 @@ def check9(mat_file, required=False, checknum=9):
     """Check 9: Has lookup group for labels/indexes if desired (but not required)"""
     try:
         print("\nCheck 9: Has lookup group for labels/indexes if desired (but not required)")
-        ok = "lookup" in mat_file.keys()
+        ok = "lookup" in mat_file["/"]
         print("  Group:", pass_or_fail(ok))
         if ok:
             print("  Number of Lookups:", len(mat_file.list_mappings()))
@@ -166,11 +166,11 @@ def check10(mat_file, required=False, checknum=10):
     try:
         print("\nCheck 10: Lookup shapes are 1-d and match file shape")
         ok = False
-        if "lookup" in mat_file.keys():
+        if "lookup" in mat_file["/"]:
             ok = True
             shape_attr = mat_file.attrs.get("SHAPE")
             file_shape = tuple(shape_attr) if shape_attr is not None else ()
-            lookup_group = mat_file["lookup"]
+            lookup_group = mat_file.lookup
             for lookup_name in mat_file.list_mappings():
                 this_shape = lookup_group[lookup_name].shape
                 ok_2 = len(this_shape) == 1 and this_shape[0] in file_shape
@@ -186,9 +186,9 @@ def check11(mat_file, required=False, checknum=11):
     try:
         print("\nCheck 11: Uses common data types (int or str) for lookups")
         ok = False
-        if "lookup" in mat_file.keys():
+        if "lookup" in mat_file["/"]:
             ok = True
-            lookup_group = mat_file["lookup"]
+            lookup_group = mat_file.lookup
             for lookup_name in mat_file.list_mappings():
                 dtype = lookup_group[lookup_name].dtype
                 # Check if integer or string type
@@ -205,9 +205,7 @@ def check12(mat_file, required=False, checknum=12):
     try:
         print("\nCheck 12: Has Lookup DIM attribute of 0 (row) or 1 (column) if desired (but not required)")
         print("  Not supported at this time by the Python openmatrix package")
-        ok = False
-        if "lookup" in mat_file.keys():
-            ok = False
+        ok = "lookup" in mat_file["/"]
         return (ok, required, checknum)
     except Exception as err:
         return (False, required, checknum, str(err))
