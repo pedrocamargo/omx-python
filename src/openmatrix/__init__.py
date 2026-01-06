@@ -7,8 +7,8 @@ from .file import File as File, __version__ as __version__, __omx_version__ as _
 
 # GLOBAL FUNCTIONS -----------
 def open_file(
-    filename: PathLike,
-    mode: Union[Literal["r"], Literal["w"], Literal["a"]] = "r",
+    filename: Union[str, PathLike],
+    mode: Literal["r", "w", "a", "r+", "w-", "x"] = "r",
     title: str = "",
     filters: Optional[Union[dict[str, Any], Any]] = None,
     shape: Optional[tuple[int, int]] = None,
@@ -16,24 +16,24 @@ def open_file(
 ) -> File:
     """
     Open or create a new OMX file. New files will be created with default
-    zlib compression enabled if filters is None.
+    gzip compression enabled if filters is None.
 
     Parameters
     ----------
-    filename : string
+    filename : string or PathLike
         Name or path and name of file
     mode : string
         'r' for read-only;
         'w' to write (erases existing file);
         'a' to read/write an existing file (will create it if doesn't exist).
         'r+' is also supported (read/write, must exist).
-        Ignored in read-only mode.
+        'w- or x' create file, fail if exists.
     title : string
         Short description of this file, used when creating the file. Default is ''.
         Ignored in read-only mode.
     filters : dict or object
         HDF5 default filter options.
-        Default for OMX standard file format is: zlib compression level 1, and shuffle=True.
+        Default for OMX standard file format is: gzip compression level 1, and shuffle=True.
     shape: array-like
         Shape of matrices in this file. Default is None. Specify a valid shape
         (e.g. (1000,1200)) to enforce shape-checking for all added objects.
@@ -49,9 +49,7 @@ def open_file(
 
     # Default filters if None and mode is writing
     if filters is None and mode != "r":
-        filters = {"complib": "zlib", "complevel": 1, "shuffle": True}
-
-    print(filters)
+        filters = {"complib": "gzip", "complevel": 1, "shuffle": True}
 
     return File(filename, mode, title=title, filters=filters, shape=shape, **kwargs)
 

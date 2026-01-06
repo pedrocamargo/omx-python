@@ -20,8 +20,8 @@ class File(h5py.File):
 
     def __init__(
         self,
-        name: PathLike,
-        mode: Union[Literal["r"], Literal["w"], Literal["a"]] = "r",
+        name: Union[str, PathLike],
+        mode: Literal["r", "w", "a", "r+", "w-", "x"],
         title: str = "",
         filters: Optional[Union[dict[str, Any], Any]] = None,
         shape: Optional[tuple[int, int]] = None,
@@ -66,14 +66,47 @@ class File(h5py.File):
         shape: Optional[tuple[int, int]] = None,
         title: str = "",
         filters: Union[dict, Any] = None,
-        chunks: bool = True,
+        chunks: Union[bool, tuple[int, int]] = True,
         obj: Optional[npt.NDArray[Union[np.integer, np.floating]]] = None,
         dtype: Optional[np.dtype] = None,
         attrs: Optional[dict] = None,
     ) -> h5py.Dataset:
         """
-        Create an OMX Matrix (Dataset) at the root level. User must pass in either
-        an existing numpy matrix, or a shape and a dtype.
+        Create an OMX Matrix (CArray) at the root level. User must pass in either
+        an existing numpy matrix, or a shape and an atom type.
+
+        Parameters
+        ----------
+        name : string
+            The name of this matrix. Stored in HDF5 as the leaf name.
+        shape : numpy.array
+            Optional shape of the matrix. Shape is an int32 numpy array of format (rows,columns).
+            If shape is not specified, an existing numpy CArray must be passed in instead,
+            as the 'obj' parameter. Default is None.
+        title : string
+            Short description of this matrix. Default is ''.
+        filters : tables.Filters
+            Set of HDF5 filters (compression, etc) used for creating the matrix.
+            Default is None. See HDF5 documentation for details. Note: while the default here
+            is None, the default set of filters set at the OMX parent file level is
+            zlib compression level 1. Those settings usually trickle down to the table level.
+        chunks: bool or tuple[int, int]
+            Enable HDF5 array chunking. A value of True enables HDF5 to guess the best chunk size. Chunk size may impact
+            I/O performance.
+        obj : numpy.NDArray
+            Existing numpy array from which to create this OMX matrix. If obj is passed in,
+            then shape and atom can be left blank. If obj is not passed in, then a shape and
+            atom must be specified instead. Default is None.
+        dtype: numpy.dtype
+            Underlying data to use for storage. Defaults to the datatype of obj.
+        attrs : dict
+            Dictionary of attribute names and values to be attached to this matrix.
+            Default is None.
+
+        Returns
+        -------
+        matrix : h5py.Dataset
+            HDF5 CArray matrix
         """
 
         # If object was passed in, make sure its shape is correct
@@ -152,6 +185,12 @@ class File(h5py.File):
     def shape(self) -> Optional[tuple[int, int]]:
         """
         Get the one and only shape of all matrices in this File
+
+        Returns
+        -------
+        shape : tuple
+            Tuple of (rows,columns) for this matrix and file or None if a shape is not present and could not be
+            inferred.
         """
 
         # If we already have the shape, just return it
@@ -183,33 +222,62 @@ class File(h5py.File):
         return None
 
     def list_matrices(self) -> list[str]:
-        """List the matrix names in this File"""
+        """
+        List the matrix names in this File
+
+        Returns
+        -------
+        matrices : list
+            List of all matrix names stored in this OMX file.
+        """
 
         # Previous versions of OMX returned only the CArrays, it's possible to create other array types so we return
         # them all here.
         return list(self.data.keys())
 
     def list_all_attributes(self) -> list[str]:
-        """Return set of all attributes used for any Matrix in this File"""
+        """
+        Return set of all attributes used for any Matrix in this File
+
+        Returns
+        -------
+        all_attributes : set
+            The combined set of all attribute names that exist on any matrix in this file.
+        """
         return sorted(set(k for m in self.data.values() for k in m.attrs.keys()))
 
     # MAPPINGS -----------------------------------------------
     @property
     def data(self) -> h5py.Group:
-        """Return the data group."""
+        """Return the '/data' group."""
         return super().__getitem__("data")
 
     @property
     def lookup(self) -> h5py.Group:
-        """Return the lookup group."""
+        """Return the '/lookup' group."""
         return super().__getitem__("lookup")
 
     def list_mappings(self) -> list[str]:
-        """List all mappings in this file"""
+        """
+        List all mappings in this file
+
+        Returns:
+        --------
+        mappings : list
+            List of the names of all mappings in the OMX file. Mappings
+            are stored internally in the 'lookup' subset of the HDF5 file
+            structure. Returns empty list if there are no mappings.
+        """
         return list(self.lookup.keys())
 
     def delete_mapping(self, title) -> None:
-        """Remove a mapping."""
+        """
+        Remove a mapping.
+
+        Raises:
+        -------
+        LookupError : if the specified mapping does not exist.
+        """
         try:
             del self.lookup[title]
             self.flush()
@@ -217,7 +285,13 @@ class File(h5py.File):
             raise LookupError(f"No such mapping: {title}")
 
     def delete_matrix(self, name) -> None:
-        """Remove a matrix."""
+        """
+        Remove a matrix.
+
+        Raises:
+        -------
+        LookupError : if the specified matrix does not exist.
+        """
         try:
             del self.data[name]
             self.flush()
@@ -225,21 +299,78 @@ class File(h5py.File):
             raise LookupError(f"No such matrix: {name}")
 
     def mapping(self, title) -> dict[Any, int]:
-        """Return dict containing key:value pairs for specified mapping."""
+        """
+        Return dict containing key:value pairs for specified mapping. Keys
+        represent the map item and value represents the array offset.
+
+        Parameters:
+        -----------
+        title : string
+            Name of the mapping to be returned
+
+        Returns:
+        --------
+        mapping : dict
+            Dictionary where each key is the map item, and the value
+            represents the array offset.
+
+        Raises:
+        -------
+        LookupError : if the specified mapping does not exist.
+        """
         entries = self.lookup[title][:]
         # build reverse key-lookup
         return {k: i for i, k in enumerate(entries)}
 
     def map_entries(self, title) -> list[Any]:
-        """Return a list of entries for the specified mapping."""
+        """
+        Return a list of entries for the specified mapping.
+
+        Parameters:
+        -----------
+        title : string
+            Name of the mapping to be returned
+
+        Returns:
+        --------
+        mappings : list
+            List of entries for the specified mapping.
+
+        Raises:
+        -------
+        LookupError : if the specified mapping does not exist.
+        """
         return self.lookup[title][:].tolist()
 
     def create_mapping(self, title, entries, overwrite=False):
-        """Create an equivalency index."""
+        """
+        Create an equivalency index, which maps a raw data dimension to
+        another integer value. Once created, mappings can be referenced by
+        offset or by key.
+
+        Parameters:
+        -----------
+        title : string
+            Name of this mapping
+        entries : list
+            List of n equivalencies for the mapping. n must match one data
+            dimension of the matrix.
+        overwrite : boolean
+            True to allow overwriting an existing mapping, False will raise
+            a LookupError if the mapping already exists. Default is False.
+
+        Returns:
+        --------
+        mapping : tables.array
+            Returns the created mapping.
+
+        Raises:
+            LookupError : if the mapping exists and overwrite=False
+        """
 
         # Enforce shape-checking
-        if self.shape():
-            if len(entries) not in self._shape:
+        if shape := self.shape():
+            if len(entries) not in shape:
                 raise ShapeError("Mapping must match one data dimension")
 
         existing = self.list_mappings()
@@ -254,7 +385,9 @@ class File(h5py.File):
 
     # The following functions implement Python list/dictionary lookups. ----
     def __getitem__(self, key):
-        """Return a matrix by name, or a list of matrices by attributes"""
+        """
+        Return a matrix by name, a list of matrices by attributes, or a HDF5 group for given absolute path.
+        """
 
         if isinstance(key, str):
             # It's not uncommon to want a way out of the omx object, so we provide a special assess method via a
@@ -279,6 +412,7 @@ class File(h5py.File):
         return mats
 
     def _getMatricesByAttribute(self, key, value, matrices=None):
+        """Return a matrix by name, or a list of matrices by attributes"""
         answer = []
 
         if matrices is None:
@@ -295,6 +429,11 @@ class File(h5py.File):
         return len(self.data)
 
     def __setitem__(self, key, dataset):
+        """
+        Create a matrix with a given name.
+
+        If a h5py.Dataset is provide that dataset is copied directly.
+        """
         # We need to determine dtype and shape from the object that's been passed in.
         # This assumes 'dataset' is a numpy object.
 
@@ -312,15 +451,21 @@ class File(h5py.File):
     # Our set and get item methods break these methods from h5py. These could be useful so we restore them by forward
     # the call to the data group instead of the file object.
     def items(self):
+        """Return the key value pairs of the '/data' group."""
         return self.data.items()
 
     def keys(self):
+        """Return the keys of the '/data' group."""
         return self.data.keys()
 
     def values(self):
+        """Return the values of the '/data' group."""
         return self.data.values()
 
     def __delitem__(self, key):
+        """
+        Delete a matrix by name, or a HDF5 group for given absolute path.
+        """
         if key.startswith("/"):
             super().__delitem__(key)
         else:
@@ -331,6 +476,7 @@ class File(h5py.File):
         return iter(self.values())
 
     def __contains__(self, item):
+        """Test if a name is with the '/data' group."""
         return item in self.data
 
     # BACKWARD COMPATIBILITY:
