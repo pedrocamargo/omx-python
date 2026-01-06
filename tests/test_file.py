@@ -20,7 +20,6 @@ def add_m1_node(f):
     f.create_matrix("m1", obj=ones5x5())
 
 
-
 def test_create_file(omx_file):
     with omx.open_file(omx_file, "w"):
         pass
@@ -114,13 +113,13 @@ def test_contains(omx_file):
 def test_contains_groups_and_datasets(omx_file):
     with omx.open_file(omx_file, "w") as f:
         # groups auto-created in writable mode
-        assert "data" in f
-        assert "lookup" in f
+        assert "data" in f["/"] and "data" not in f
+        assert "lookup" in f["/"] and "lookup" not in f
 
         f.create_mapping("zones", entries=np.array([1, 2, 3]))
         f.create_matrix("m1", obj=np.ones((5, 5)))
 
-        assert "m1" in f  # dataset inside data
+        assert "m1" in f and "m1" in f.data  # dataset inside data
         assert "zones" in f.lookup  # dataset inside lookup group
         assert "missing" not in f
 
@@ -216,12 +215,12 @@ def test_lookup_property_behavior(tmp_path):
     with omx.open_file(omx_file, "w") as f:
         lookup_group = f.lookup
         assert isinstance(lookup_group, h5py.Group)
-        assert "lookup" in f
+        assert "lookup" in f["/"] and "lookup" not in f
         lookup_group.create_dataset("zones", data=np.arange(3))
 
     # With an existing lookup group, read mode should expose it
     with omx.open_file(omx_file, "r") as f:
-        assert "lookup" in f
+        assert "lookup" in f["/"] and "lookup" not in f
         assert "zones" in f.lookup
 
     # If a read-only file has no lookup group, accessing lookup should raise
@@ -229,7 +228,7 @@ def test_lookup_property_behavior(tmp_path):
     with h5py.File(omx_file_no_lookup, "w"):
         pass
     with omx.open_file(omx_file_no_lookup, "r") as f:
-        with pytest.raises(omx.exceptions.MappingError):
+        with pytest.raises(KeyError, match="object 'lookup' doesn't exist"):
             _ = f.lookup
 
 
@@ -291,15 +290,19 @@ def test_create_matrix_with_dict_filters(omx_file):
 
 def test_create_matrix_with_object_filters(omx_file):
     """Test create_matrix with object-style filters (like tables.Filters)."""
+
     class MockFilters:
         complib = "zlib"
         complevel = 2
-        shuffle = True
+        shuffle = False
+        fletcher32 = True
 
     with omx.open_file(omx_file, "w") as f:
         f.create_matrix("m1", obj=ones5x5(), filters=MockFilters())
-        assert f["m1"].compression == "gzip"
-        assert f["m1"].compression_opts == 2
+        assert f["m1"].compression == "gzip"  # Translated from zlib
+        assert f["m1"].compression_opts == MockFilters.complevel
+        assert f["m1"].shuffle == MockFilters.shuffle
+        assert f["m1"].fletcher32 == MockFilters.fletcher32
 
 
 def test_shape_inferred_from_first_matrix(tmp_path):
@@ -318,7 +321,7 @@ def test_shape_inferred_from_first_matrix(tmp_path):
 def test_list_matrices_empty_file(tmp_path):
     """Test list_matrices returns empty list when no data group exists."""
     omx_file = tmp_path / f"test{uuid.uuid4().hex}.omx"
-    with h5py.File(omx_file, "w"):
+    with omx.open_file(omx_file, "w"):
         pass
     with omx.open_file(omx_file, "r") as f:
         assert f.list_matrices() == []
@@ -333,10 +336,13 @@ def test_delete_mapping(omx_file):
         assert "taz" not in f.list_mappings()
 
 
-@pytest.mark.parametrize("setup,title", [
-    ("no_lookup", "missing"),  # No lookup group exists
-    ("with_mapping", "nonexistent"),  # Lookup exists but title doesn't
-])
+@pytest.mark.parametrize(
+    "setup,title",
+    [
+        ("no_lookup", "missing"),  # No lookup group exists
+        ("with_mapping", "nonexistent"),  # Lookup exists but title doesn't
+    ],
+)
 def test_delete_mapping_errors(tmp_path, setup, title):
     """Test delete_mapping raises LookupError for missing lookup or title."""
     omx_file = tmp_path / f"test{uuid.uuid4().hex}.omx"
@@ -374,7 +380,7 @@ def test_mapping_methods_missing_lookup(tmp_path, method):
     with h5py.File(omx_file, "w"):
         pass
     with omx.open_file(omx_file, "r") as f:
-        with pytest.raises(LookupError, match="No such mapping"):
+        with pytest.raises(KeyError, match="object 'lookup' doesn't exist"):
             getattr(f, method)("missing")
 
 
@@ -386,10 +392,13 @@ def test_create_mapping_shape_mismatch(omx_file):
             f.create_mapping("bad", np.arange(1, 10))  # Length 9 doesn't match 5
 
 
-@pytest.mark.parametrize("overwrite,should_raise", [
-    (True, False),   # overwrite=True replaces existing
-    (False, True),   # overwrite=False raises
-])
+@pytest.mark.parametrize(
+    "overwrite,should_raise",
+    [
+        (True, False),  # overwrite=True replaces existing
+        (False, True),  # overwrite=False raises
+    ],
+)
 def test_create_mapping_overwrite_behavior(omx_file, overwrite, should_raise):
     """Test create_mapping overwrite parameter behavior."""
     with omx.open_file(omx_file, "w") as f:
@@ -405,9 +414,9 @@ def test_create_mapping_overwrite_behavior(omx_file, overwrite, should_raise):
 def test_getitem_direct_group_access(omx_file):
     """Test __getitem__ with 'data' and 'lookup' keys."""
     with omx.open_file(omx_file, "w") as f:
-        data_group = f["data"]
+        data_group = f.data
         assert isinstance(data_group, h5py.Group)
-        lookup_group = f["lookup"]
+        lookup_group = f.lookup
         assert isinstance(lookup_group, h5py.Group)
 
 
@@ -417,16 +426,6 @@ def test_getitem_path_access(omx_file):
         f.create_matrix("m1", obj=ones5x5())
         mat = f["/data/m1"]
         npt.assert_array_equal(mat, ones5x5())
-
-
-def test_getitem_root_level_key(tmp_path):
-    """Test __getitem__ accessing root-level key that's not in data group."""
-    omx_file = tmp_path / f"test{uuid.uuid4().hex}.omx"
-    with h5py.File(omx_file, "w") as f:
-        f.create_group("custom_group")
-    with omx.open_file(omx_file, "r") as f:
-        grp = f["custom_group"]
-        assert isinstance(grp, h5py.Group)
 
 
 def test_getitem_dict_attribute_lookup(omx_file):
@@ -442,10 +441,13 @@ def test_getitem_dict_attribute_lookup(omx_file):
         assert result[0].name.split("/")[-1] == "m1"
 
 
-@pytest.mark.parametrize("key,desc", [
-    ("nonexistent", "missing string key"),
-    (12345, "invalid key type without keys() method"),
-])
+@pytest.mark.parametrize(
+    "key,desc",
+    [
+        ("nonexistent", "missing string key"),
+        (12345, "invalid key type without keys() method"),
+    ],
+)
 def test_getitem_errors(omx_file, key, desc):
     """Test __getitem__ raises LookupError for invalid keys."""
     with omx.open_file(omx_file, "w") as f:
@@ -462,15 +464,18 @@ def test_getMatricesByAttribute_no_matrices_arg(omx_file):
         assert len(result) == 1
 
 
-@pytest.mark.parametrize("operation,expected", [
-    ("len", 0),
-    ("iter", []),
-    ("contains", False),
-])
+@pytest.mark.parametrize(
+    "operation,expected",
+    [
+        ("len", 0),
+        ("iter", []),
+        ("contains", False),
+    ],
+)
 def test_empty_file_no_data_group(tmp_path, operation, expected):
     """Test file operations when no data group exists."""
     omx_file = tmp_path / f"test{uuid.uuid4().hex}.omx"
-    with h5py.File(omx_file, "w"):
+    with omx.open_file(omx_file, "w"):
         pass
     with omx.open_file(omx_file, "r") as f:
         if operation == "len":
@@ -479,6 +484,8 @@ def test_empty_file_no_data_group(tmp_path, operation, expected):
             assert list(f) == expected
         elif operation == "contains":
             assert ("anything" in f) == expected
+        else:  # pragma: no cover
+            pass
 
 
 def test_setitem_overwrites_existing(omx_file):
@@ -494,13 +501,13 @@ def test_delitem_behavior(omx_file, key_exists):
     """Test __delitem__ for existing and non-existent keys."""
     with omx.open_file(omx_file, "w") as f:
         if key_exists:
-            f.create_group("custom")
+            f["custom"] = ones5x5()
             assert "custom" in f
             del f["custom"]
             assert "custom" not in f
         else:
-            # Should not raise, just logs debug message
-            del f["nonexistent"]
+            with pytest.raises(KeyError, match="Couldn't delete link"):
+                del f["nonexistent"]
 
 
 def test_open_file_with_shape(omx_file):
@@ -539,8 +546,9 @@ def test_shape_inferred_from_first_matrix_append_mode(tmp_path):
 def test_getMatricesByAttribute_no_data_group(tmp_path):
     """Test _getMatricesByAttribute when no data group exists and matrices=None."""
     omx_file = tmp_path / f"test{uuid.uuid4().hex}.omx"
-    with h5py.File(omx_file, "w"):
+    with omx.open_file(omx_file, "w"):
         pass
+
     with omx.open_file(omx_file, "r") as f:
         result = f._getMatricesByAttribute("key", "value")
         assert result == []
@@ -593,3 +601,48 @@ def test_backward_compatibility_aliases(omx_file):
         assert "taz" not in f.listMappings()
 
 
+def test_keys_values_items(omx_file):
+    with omx.open_file(omx_file, "w") as f:
+        f["m1"] = ones5x5()
+        f["m2"] = ones5x5()
+
+        assert all((k, v) == t for k, v, t in zip(f.keys(), f.values(), f.items()))
+
+
+def test_assess_with_path(omx_file):
+    with omx.open_file(omx_file, "w") as f:
+        f["m1"] = ones5x5()
+        npt.assert_array_equal(f["/data/m1"], ones5x5())
+
+        del f["/data/m1"]
+
+        assert "m1" not in f
+
+
+def test_tables_like_filters(omx_file):
+    class MockFilters:
+        complib = "zlib"
+        complevel = 3
+        shuffle = False
+        fletcher32 = True
+
+    with omx.open_file(omx_file, "w", filters=MockFilters()) as f:
+        f["m1"] = ones5x5()
+        m1 = f["m1"]
+
+        assert m1.compression == "gzip"  # zlib was translated to gzip
+        assert m1.compression_opts == MockFilters.complevel
+        assert m1.shuffle == MockFilters.shuffle
+        assert m1.fletcher32 == MockFilters.fletcher32
+
+
+def test_bad_filters(omx_file):
+    with pytest.raises(TypeError, match="unknown filters object"):
+        with omx.open_file(omx_file, "w", filters="gzip") as f:
+            f["m1"] = ones5x5()
+
+
+@pytest.mark.parametrize("chunks", [True, False])
+def test_chunks(omx_file, chunks):
+    with omx.open_file(omx_file, "w") as f:
+        f.create_matrix("m1", obj=ones5x5(), chunks=chunks)
