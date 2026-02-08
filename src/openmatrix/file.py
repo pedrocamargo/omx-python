@@ -33,6 +33,10 @@ class File(h5py.File):
 
         # add omx structure if file is writable
         if mode != "r":
+            # title
+            if title:
+                self.attrs["TITLE"] = title
+
             # version number
             if "OMX_VERSION" not in self.attrs:
                 self.attrs["OMX_VERSION"] = __omx_version__
@@ -72,7 +76,7 @@ class File(h5py.File):
         attrs: Optional[dict] = None,
     ) -> h5py.Dataset:
         """
-        Create an OMX Matrix (CArray) at the root level. User must pass in either
+        Create an OMX Matrix (Dataset) at the root level. User must pass in either
         an existing numpy matrix, or a shape and an atom type.
 
         Parameters
@@ -81,11 +85,11 @@ class File(h5py.File):
             The name of this matrix. Stored in HDF5 as the leaf name.
         shape : numpy.array
             Optional shape of the matrix. Shape is an int32 numpy array of format (rows,columns).
-            If shape is not specified, an existing numpy CArray must be passed in instead,
+            If shape is not specified, an existing numpy array must be passed in instead,
             as the 'obj' parameter. Default is None.
         title : string
             Short description of this matrix. Default is ''.
-        filters : tables.Filters
+        filters : dict or object
             Set of HDF5 filters (compression, etc) used for creating the matrix.
             Default is None. See HDF5 documentation for details. Note: while the default here
             is None, the default set of filters set at the OMX parent file level is
@@ -106,7 +110,7 @@ class File(h5py.File):
         Returns
         -------
         matrix : h5py.Dataset
-            HDF5 CArray matrix
+            HDF5 Dataset matrix
         """
 
         # If object was passed in, make sure its shape is correct
@@ -267,7 +271,10 @@ class File(h5py.File):
             are stored internally in the 'lookup' subset of the HDF5 file
             structure. Returns empty list if there are no mappings.
         """
-        return list(self.lookup.keys())
+        try:
+            return list(self.lookup.keys())
+        except KeyError:
+            return []
 
     def delete_mapping(self, title) -> None:
         """
@@ -360,7 +367,7 @@ class File(h5py.File):
 
         Returns:
         --------
-        mapping : tables.array
+        mapping : h5py.Dataset
             Returns the created mapping.
 
         Raises:
@@ -444,6 +451,7 @@ class File(h5py.File):
         try:
             del self[key]
         except KeyError:
+            # If the key does not exist yet, there's nothing to delete; this is expected.
             pass
 
         return self.create_matrix(key, obj=dataset)

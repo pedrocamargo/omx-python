@@ -390,7 +390,7 @@ OMX file format version. Currently '0.2'. This is the OMX file format specificat
 
         Returns:
         --------
-        mapping : tables.array
+        mapping : h5py.Dataset
             Returns the created mapping.
 
         Raises:

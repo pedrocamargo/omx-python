@@ -32,7 +32,6 @@ print("Table names:", myfile.list_matrices())  # ['m1','m2',',m3']
 # -------------------------------------------------------
 m1 = myfile["m1"]
 m2 = myfile["m2"]
-m3 = myfile["m3"]
 
 # halves = m1 * 0.5  # CRASH!  Don't modify an OMX object directly.
 #                    # Create a new numpy array, and then edit it.
