@@ -141,7 +141,7 @@ OMX File objects extend h5py.File, so most h5py functions work normally, some me
 
 ### Writing Data
 
-Writing data to an OMX file is simple: You must provide a name, and you must provide either an existing numpy (or python) array, or a shape and an "atom". You can optionally provide a descriptive title, a list of tags, and other implementation minutiae.
+Writing data to an OMX file is simple: You must provide a name, and you must provide either an existing numpy (or python) array, or a shape and dtype. You can optionally provide a descriptive title, a list of tags, and other implementation minutiae.
 
 The easiest way to do all that is to use python dictionary nomenclature:
 
@@ -202,7 +202,7 @@ OMX module version string.  Currently '0.4.0' as of this writing. This is the Py
 ### `__omx_version__`
 OMX file format version. Currently '0.2'. This is the OMX file format specification that omx-python adheres to.
 
-### `open_file(filename: Union[str, PathLike], mode: Literal["r", "w", "a", "r+", "w-", "x"] = "r", title: str = "", filters: Optional[Union[dict[str, Any], Any]] = None, shape: Optional[tuple[int, int]] = None, **kwargs,) -> File`
+### `open_file(filename: Union[str, PathLike], mode: Literal["r", "w", "a", "r+", "w-", "x"] = "r", title: str = "", filters: Optional[dict[str, Any]] = None, shape: Optional[tuple[int, int]] = None, **kwargs,) -> File`
         Open or create a new OMX file. New files will be created with default
         gzip compression enabled if filters is None.
 
@@ -219,7 +219,7 @@ OMX file format version. Currently '0.2'. This is the OMX file format specificat
         title : string
             Short description of this file, used when creating the file. Default is ''.
             Ignored in read-only mode.
-        filters : dict or object
+        filters : dict, optional
             HDF5 default filter options.
             Default for OMX standard file format is: gzip compression level 1, and shuffle=True.
         shape: array-like
@@ -227,7 +227,7 @@ OMX file format version. Currently '0.2'. This is the OMX file format specificat
             (e.g. (1000,1200)) to enforce shape-checking for all added objects.
             If shape is not specified, the first added matrix will not be shape-checked
             and all subsequently added matrices must match the shape of the first matrix.
-            All tables in an OMX file must have the same shape.
+            All datasets in an OMX file must have the same shape.
 
         Returns
         -------
@@ -244,34 +244,29 @@ OMX file format version. Currently '0.2'. This is the OMX file format specificat
         Returns None if the OMX_VERSION attribute is not set.
         """
 
-### `create_matrix(self, name: str, shape: Optional[tuple[int, int]] = None, title: str = "", filters: Union[dict, Any] = None, chunks: Union[bool, tuple[int, int]] = True, obj: Optional[npt.NDArray[Union[np.integer, np.floating]]] = None, dtype: Optional[np.dtype] = None, attrs: Optional[dict] = None,) -> h5py.Dataset`
-        Create an OMX Matrix (CArray) at the root level. User must pass in either
-        an existing numpy matrix, or a shape and an atom type.
+### `create_matrix(self, name: str, shape: Optional[tuple[int, int]] = None, title: str = "", filters: Optional[dict[str, Any]] = None, chunks: Union[bool, tuple[int, int]] = True, obj: Optional[npt.NDArray[Union[np.integer, np.floating]]] = None, dtype: Optional[np.dtype] = None, attrs: Optional[dict] = None,) -> h5py.Dataset`
+        Create an OMX matrix (Dataset) at the root level. You must pass either
+        an existing NumPy array, or both shape and dtype.
 
         Parameters
         ----------
         name : string
             The name of this matrix. Stored in HDF5 as the leaf name.
-        shape : numpy.array
-            Optional shape of the matrix. Shape is an int32 numpy array of format (rows,columns).
-            If shape is not specified, an existing numpy CArray must be passed in instead,
-            as the 'obj' parameter. Default is None.
+        shape : tuple[int, int], optional
+            Shape of the matrix as (rows, columns). If not specified, `obj` must be provided.
         title : string
             Short description of this matrix. Default is ''.
-        filters : tables.Filters
-            Set of HDF5 filters (compression, etc) used for creating the matrix.
-            Default is None. See HDF5 documentation for details. Note: while the default here
-            is None, the default set of filters set at the OMX parent file level is
-            zlib compression level 1. Those settings usually trickle down to the table level.
+        filters : dict, optional
+            HDF5 filter options used when creating the matrix, such as `complib`,
+            `complevel`, `shuffle`, and `fletcher32`.
         chunks: bool or tuple[int, int]
             Enable HDF5 array chunking. A value of True enables HDF5 to guess the best chunk size. Chunk size may impact
             I/O performance.
-        obj : numpy.NDArray
-            Existing numpy array from which to create this OMX matrix. If obj is passed in,
-            then shape and atom can be left blank. If obj is not passed in, then a shape and
-            atom must be specified instead. Default is None.
-        dtype: numpy.dtype
-            Underlying data to use for storage. Defaults to the datatype of obj.
+        obj : numpy.NDArray, optional
+            Existing NumPy array to store. If `obj` is passed, `shape` and `dtype`
+            are inferred from the array.
+        dtype: numpy.dtype, optional
+            Data type to use for storage. Required when `obj` is None.
         attrs : dict
             Dictionary of attribute names and values to be attached to this matrix.
             Default is None.
@@ -279,7 +274,7 @@ OMX file format version. Currently '0.2'. This is the OMX file format specificat
         Returns
         -------
         matrix : h5py.Dataset
-            HDF5 CArray matrix
+            HDF5 dataset matrix
 
 ### `shape(self) -> Optional[tuple[int, int]]`
         Get the one and only shape of all matrices in this File

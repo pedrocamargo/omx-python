@@ -174,7 +174,7 @@ def test_matrices_by_attr(omx_file):
         assert r4[0].name.split("/")[-1] == "m3"
 
 
-def test_set_with_carray(omx_file):
+def test_set_with_dataset_reference(omx_file):
     with omx.open_file(omx_file, "w") as f:
         f["m1"] = ones5x5()
         f["m2"] = f["m1"]
@@ -288,21 +288,18 @@ def test_create_matrix_with_dict_filters(omx_file):
         assert f["m1"].shuffle is True
 
 
-def test_create_matrix_with_object_filters(omx_file):
-    """Test create_matrix with object-style filters (like tables.Filters)."""
-
-    class MockFilters:
-        complib = "zlib"
-        complevel = 2
-        shuffle = False
-        fletcher32 = True
-
+def test_create_matrix_with_invalid_filters_type_raises(omx_file):
+    """Test create_matrix rejects non-dict filter values."""
     with omx.open_file(omx_file, "w") as f:
-        f.create_matrix("m1", obj=ones5x5(), filters=MockFilters())
-        assert f["m1"].compression == "gzip"  # Translated from zlib
-        assert f["m1"].compression_opts == MockFilters.complevel
-        assert f["m1"].shuffle == MockFilters.shuffle
-        assert f["m1"].fletcher32 == MockFilters.fletcher32
+        with pytest.raises(TypeError, match="filters must be a dict or None"):
+            f.create_matrix("m1", obj=ones5x5(), filters="gzip")
+
+
+def test_open_file_with_invalid_filters_type_raises(omx_file):
+    """Test open_file rejects non-dict default filters."""
+    with pytest.raises(TypeError, match="filters must be a dict or None"):
+        with omx.open_file(omx_file, "w", filters="gzip") as f:
+            f["m1"] = ones5x5()
 
 
 def test_shape_inferred_from_first_matrix(tmp_path):
@@ -618,28 +615,6 @@ def test_assess_with_path(omx_file):
 
         assert "m1" not in f
 
-
-def test_tables_like_filters(omx_file):
-    class MockFilters:
-        complib = "zlib"
-        complevel = 3
-        shuffle = False
-        fletcher32 = True
-
-    with omx.open_file(omx_file, "w", filters=MockFilters()) as f:
-        f["m1"] = ones5x5()
-        m1 = f["m1"]
-
-        assert m1.compression == "gzip"  # zlib was translated to gzip
-        assert m1.compression_opts == MockFilters.complevel
-        assert m1.shuffle == MockFilters.shuffle
-        assert m1.fletcher32 == MockFilters.fletcher32
-
-
-def test_bad_filters(omx_file):
-    with pytest.raises(TypeError, match="unknown filters object"):
-        with omx.open_file(omx_file, "w", filters="gzip") as f:
-            f["m1"] = ones5x5()
 
 
 @pytest.mark.parametrize("chunks", [True, False])

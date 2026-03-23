@@ -23,12 +23,15 @@ class File(h5py.File):
         name: Union[str, PathLike],
         mode: Literal["r", "w", "a", "r+", "w-", "x"],
         title: str = "",
-        filters: Optional[Union[dict[str, Any], Any]] = None,
+        filters: Optional[dict[str, Any]] = None,
         shape: Optional[tuple[int, int]] = None,
         **kwargs,
     ):
         super().__init__(name, mode, **kwargs)
         self._shape = None
+
+        if filters is not None and not isinstance(filters, dict):
+            raise TypeError("filters must be a dict or None")
         self.default_filters = filters
 
         # add omx structure if file is writable
@@ -69,48 +72,43 @@ class File(h5py.File):
         name: str,
         shape: Optional[tuple[int, int]] = None,
         title: str = "",
-        filters: Union[dict, Any] = None,
+        filters: Optional[dict[str, Any]] = None,
         chunks: Union[bool, tuple[int, int]] = True,
         obj: Optional[npt.NDArray[Union[np.integer, np.floating]]] = None,
         dtype: Optional[np.dtype] = None,
         attrs: Optional[dict] = None,
     ) -> h5py.Dataset:
         """
-        Create an OMX Matrix (Dataset) at the root level. User must pass in either
-        an existing numpy matrix, or a shape and an atom type.
+        Create an OMX matrix (Dataset) at the root level. You must pass either
+        an existing NumPy array, or both shape and dtype.
 
         Parameters
         ----------
         name : string
             The name of this matrix. Stored in HDF5 as the leaf name.
-        shape : numpy.array
-            Optional shape of the matrix. Shape is an int32 numpy array of format (rows,columns).
-            If shape is not specified, an existing numpy array must be passed in instead,
-            as the 'obj' parameter. Default is None.
+        shape : tuple[int, int], optional
+            Shape of the matrix as (rows, columns). If not specified, `obj` must be provided.
         title : string
             Short description of this matrix. Default is ''.
-        filters : dict or object
-            Set of HDF5 filters (compression, etc) used for creating the matrix.
-            Default is None. See HDF5 documentation for details. Note: while the default here
-            is None, the default set of filters set at the OMX parent file level is
-            zlib compression level 1. Those settings usually trickle down to the table level.
+        filters : dict, optional
+            HDF5 filter options used when creating the matrix, such as `complib`,
+            `complevel`, `shuffle`, and `fletcher32`.
         chunks: bool or tuple[int, int]
-            Enable HDF5 array chunking. A value of True enables HDF5 to guess the best chunk size. Chunk size may impact
-            I/O performance.
-        obj : numpy.NDArray
-            Existing numpy array from which to create this OMX matrix. If obj is passed in,
-            then shape and atom can be left blank. If obj is not passed in, then a shape and
-            atom must be specified instead. Default is None.
-        dtype: numpy.dtype
-            Underlying data to use for storage. Defaults to the datatype of obj.
+            Enable HDF5 array chunking. A value of True lets HDF5 choose a chunk size.
+            Chunk size may impact I/O performance.
+        obj : numpy.NDArray, optional
+            Existing NumPy array to store. If `obj` is passed, `shape` and `dtype`
+            are inferred from the array.
+        dtype: numpy.dtype, optional
+            Data type to use for storage. Required when `obj` is None.
         attrs : dict
-            Dictionary of attribute names and values to be attached to this matrix.
+            Dictionary of attribute names and values to attach to this matrix.
             Default is None.
 
         Returns
         -------
         matrix : h5py.Dataset
-            HDF5 Dataset matrix
+            HDF5 dataset matrix
         """
 
         # If object was passed in, make sure its shape is correct
@@ -131,26 +129,16 @@ class File(h5py.File):
         compression = compression_opts = None
         shuffle = fletcher32 = False
 
-        # If filters is passed (it might be a tables.Filters object or a dict or None)
-        # We'll try to parse basic stuff or just use defaults if it's the standard OMX one
-        filters = filters or self.default_filters
+        # Use file defaults only when method-level filters are not provided.
+        filters = self.default_filters if filters is None else filters
 
-        if filters:
-            # Handle dict
-            if isinstance(filters, dict):
-                compression = filters.get("complib")
-                compression_opts = filters.get("complevel")
-                shuffle = filters.get("shuffle")
-                fletcher32 = filters.get("fletcher32")
-
-            # Handle object with attributes (like tables.Filters)
-            elif hasattr(filters, "complib"):
-                compression = filters.complib if filters.complib else compression
-                compression_opts = filters.complevel if hasattr(filters, "complevel") else compression_opts
-                shuffle = filters.shuffle if hasattr(filters, "shuffle") else shuffle
-                fletcher32 = filters.fletcher32 if hasattr(filters, "fletcher32") else fletcher32
-            else:
-                raise TypeError("unknown filters object")
+        if filters is not None:
+            if not isinstance(filters, dict):
+                raise TypeError("filters must be a dict or None")
+            compression = filters.get("complib")
+            compression_opts = filters.get("complevel")
+            shuffle = filters.get("shuffle")
+            fletcher32 = filters.get("fletcher32")
 
         compression = "gzip" if compression == "zlib" else compression
 
@@ -234,8 +222,8 @@ class File(h5py.File):
             List of all matrix names stored in this OMX file.
         """
 
-        # Previous versions of OMX returned only the CArrays, it's possible to create other array types so we return
-        # them all here.
+        # Previous versions of OMX returned only matrix-like arrays. Current behavior
+        # returns all children under '/data'.
         return list(self.data.keys())
 
     def list_all_attributes(self) -> list[str]:
@@ -444,7 +432,7 @@ class File(h5py.File):
         # We need to determine dtype and shape from the object that's been passed in.
         # This assumes 'dataset' is a numpy object.
 
-        # Check if it's already an h5py dataset (copy?)
+        # Check if it's already a h5py dataset (copy?)
         if isinstance(dataset, h5py.Dataset):
             return self.data.copy(dataset, key)
 

@@ -10,7 +10,7 @@ def open_file(
     filename: Union[str, PathLike],
     mode: Literal["r", "w", "a", "r+", "w-", "x"] = "r",
     title: str = "",
-    filters: Optional[Union[dict[str, Any], Any]] = None,
+    filters: Optional[dict[str, Any]] = None,
     shape: Optional[tuple[int, int]] = None,
     **kwargs,
 ) -> File:
@@ -31,7 +31,7 @@ def open_file(
     title : string
         Short description of this file, used when creating the file. Default is ''.
         Ignored in read-only mode.
-    filters : dict or object
+    filters : dict, optional
         HDF5 default filter options.
         Default for OMX standard file format is: gzip compression level 1, and shuffle=True.
     shape: array-like
@@ -39,7 +39,7 @@ def open_file(
         (e.g. (1000,1200)) to enforce shape-checking for all added objects.
         If shape is not specified, the first added matrix will not be shape-checked
         and all subsequently added matrices must match the shape of the first matrix.
-        All tables in an OMX file must have the same shape.
+        All datasets in an OMX file must have the same shape.
 
     Returns
     -------
